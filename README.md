@@ -1,16 +1,27 @@
-# NIFTY SENTINEL V14 — Professional UI
+# NIFTY SENTINEL V16 — Strategy & Trade Journal
 
-Mobile-friendly market dashboard refresh with a clean light trading-terminal style, dark navigation sidebar, green primary actions, clearer market/option-chain sections, compact status and timestamp, and improved metric/table/chart styling.
+A mobile-friendly Streamlit dashboard using Groww Trading API snapshots. It is read-only: no orders are placed.
 
-Keeps the V13 Groww API authentication options (access token and TOTP), expiry selector, quote/OHLC request, option-chain request, and illustrative premium risk calculator. No automatic orders are placed.
+## Features
+- Groww NIFTY LTP and OHLC snapshots
+- Access-token and TOTP authentication options
+- Fetches available NIFTY expiries from Groww historical expiry API when available (weekday candidates are only a fallback)
+- Option-chain table with CE/PE LTP, OI, volume and Greeks
+- Premium chart and risk-sized trade planner (entry, stop, target, lot-size check)
+- Rule-based market context filter using actual Groww spot and day OHLC: bullish / bearish / neutral WAIT
+- Breakout and breakdown checklist; candle confirmation is not claimed because this version does not fetch 5-minute candles
+- Manual trade journal stored in session, with CSV download and pre-cost P&L
+- Option-chain failures do not hide the working NIFTY live quote; no fake data is substituted
+- Responsive dark professional terminal design
 
-## Deploy from Android
-1. Extract the ZIP.
-2. In your GitHub repo, replace `app.py` and `requirements.txt` with these files, then commit.
-3. Wait for Streamlit Cloud to redeploy.
-4. Test the live quote and option chain. Verify the selected expiry against the expiry listed in Groww.
+## Deploy
+Replace `app.py` and `requirements.txt` in your existing GitHub repository, commit, then let Streamlit Cloud redeploy.
 
-## Notes
-- UI and Python syntax were checked locally; the Groww API was not live-tested from this package.
-- The expiry list is a set of candidate Tuesday dates, not a guaranteed exchange calendar. A Groww `GA000` option-chain error may still be a server-side issue.
-- Keep access tokens and TOTP secrets out of GitHub and chat.
+Optional Streamlit secret:
+```toml
+GROWW_ACCESS_TOKEN = "your_access_token"
+```
+Keep access tokens, API keys and TOTP secrets out of GitHub and chat.
+
+## Important
+This app fetches REST snapshots on page refresh; it is not a websocket tick feed. Code was syntax-checked, but this package has not been tested against your Groww account/API. Strategy rules are transparent research heuristics, not a proven profitable strategy. Option-chain availability depends on the API response and a valid listed expiry.
