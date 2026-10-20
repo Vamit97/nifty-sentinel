@@ -1,18 +1,12 @@
-# NIFTY SENTINEL LIVE V10
+# NIFTY SENTINEL LIVE V11
+This update uses the exact Groww REST endpoint parameters shown in Groww's official Live Data documentation:
+- LTP: `/v1/live-data/ltp?segment=CASH&exchange_symbols=NSE_NIFTY`
+- OHLC: `/v1/live-data/ohlc?segment=CASH&exchange_symbols=NSE_NIFTY`
+- Option chain: `/v1/option-chain/exchange/NSE/underlying/NIFTY?expiry_date=YYYY-MM-DD`
 
-A Streamlit dashboard starter for Groww Trading API live NIFTY quote and option-chain research.
+Deploy `app.py` and `requirements.txt` to the existing GitHub repository. Add Streamlit Secrets:
+`GROWW_ACCESS_TOKEN = "your_access_token"`
 
-## Deploy
-1. Upload `app.py` and `requirements.txt` to the existing GitHub repo used by Streamlit Community Cloud.
-2. In Streamlit Cloud: Manage app → Settings → Secrets, add:
-   `GROWW_ACCESS_TOKEN = "your_token"`
-3. Reboot the app and choose the correct NIFTY expiry.
-4. Check the displayed spot and option premium against Groww before relying on it.
+This app reports the specific HTTP endpoint and status if a request fails, without displaying the token. If 403 persists, confirm the correct active access token/authentication flow and account API permissions with Groww. Groww's static-IP guidance primarily concerns API order placement; do not assume it is the cause of a market-data quote failure.
 
-## Important scope
-- Uses Groww SDK `get_ltp`, `get_ohlc`, and `get_option_chain`.
-- No orders are placed.
-- Signal labels are deliberately WATCH/NO TRADE heuristics, not proven trade calls.
-- Premium SL/target are illustrative calculator levels, not validated recommendations.
-- The dashboard currently uses a live snapshot and option chain; it does not yet render historical intraday candles.
-- Do not commit API tokens to GitHub or paste them in chat.
+No automatic orders. SL/targets are illustrative calculator outputs, not a validated strategy or trading recommendation.
