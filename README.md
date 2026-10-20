@@ -1,6 +1,10 @@
-# NIFTY SENTINEL v2
-Fixes a common data issue: public Yahoo Finance intraday history is limited, so defaults to 5 days for intraday candles and 1 year for daily candles. Adds clearer error messages.
+# NIFTY SENTINEL v3
+Replace `app.py` and `requirements.txt` in your existing GitHub repository with these files. Commit changes; Streamlit Community Cloud should redeploy automatically.
 
-Upload `app.py` and `requirements.txt` to the existing GitHub repository, replacing the old files. Streamlit Community Cloud should redeploy after the commit.
+User workflow: open the Streamlit website, check latest candle timestamp, read the one-line signal. Expand indicators/backtest only if needed.
 
-This is a research dashboard, not an options-premium trading system. It does not place broker orders or guarantee profitability.
+Important limitations:
+- Uses public Yahoo Finance NIFTY underlying candles; public feed may be delayed or unavailable.
+- Signals are underlying-direction research candidates, not live option premium entry/SL/targets.
+- Backtest uses next-candle-open entries, ATR-based exits, conservative SL-first same-bar logic, and a rough user-editable cost in NIFTY points. It is not an options backtest and does not prove future profitability.
+- No broker orders are placed; no API keys are needed.
