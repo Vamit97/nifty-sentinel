@@ -20,20 +20,51 @@ section[data-testid="stSidebar"]{background:#0b1422}
 st.title("📈 NIFTY SENTINEL")
 st.caption("LIVE MARKET MONITOR • OPTION CHAIN • MANUAL EXECUTION")
 with st.sidebar:
-    st.subheader("Groww API")
-    secret_token=""
-    try: secret_token=st.secrets.get("GROWW_ACCESS_TOKEN","")
-    except Exception: pass
-    token=st.text_input("Access token",value=secret_token,type="password")
+    st.subheader("Groww API Authentication")
+    auth_mode = st.radio("Authentication method", ["Access token", "TOTP token"], index=0)
+    secret_token = ""
+    try:
+        secret_token = st.secrets.get("GROWW_ACCESS_TOKEN", "")
+    except Exception:
+        pass
+    token = ""
+    if auth_mode == "Access token":
+        token = st.text_input("Groww access token", value=secret_token, type="password",
+                              help="Daily access token; keep private.")
+    else:
+        st.caption("Use the TOTP token + TOTP secret from Groww Trading APIs. These are not your normal API key/secret.")
+        totp_token = st.text_input("Groww TOTP token", type="password")
+        totp_secret = st.text_input("TOTP secret", type="password")
+        if st.button("Generate access token from TOTP", use_container_width=True):
+            try:
+                import pyotp
+                from growwapi import GrowwAPI
+                if not totp_token.strip() or not totp_secret.strip():
+                    raise ValueError("Enter both TOTP token and TOTP secret.")
+                current_otp = pyotp.TOTP(totp_secret.strip()).now()
+                generated = GrowwAPI.get_access_token(api_key=totp_token.strip(), totp=current_otp)
+                st.session_state["groww_generated_access_token"] = generated
+                st.session_state["groww_generated_token_time"] = datetime.now(TZ).strftime("%H:%M:%S IST")
+                st.success("Access token generated successfully. It is held in this session only.")
+            except Exception as e:
+                st.session_state.pop("groww_generated_access_token", None)
+                st.error("TOTP authentication failed. Check TOTP token/secret and Groww API approval.")
+                st.caption(f"Diagnostic: {type(e).__name__}: {str(e)[:220]}")
+        token = st.session_state.get("groww_generated_access_token", "")
+        if token:
+            st.caption("Session token generated at " + st.session_state.get("groww_generated_token_time", ""))
     expiry=st.date_input("NIFTY expiry",value=date.today())
     capital=st.number_input("Trading capital (₹)",min_value=1000,value=150000,step=5000)
     risk_pct=st.slider("Risk budget (%)",0.25,2.0,0.5,0.25)
-    st.caption("Keep token private. Never commit it to GitHub.")
+    st.caption("Keep all tokens and secrets private. Never commit them to GitHub.")
 st.button("↻ Refresh live data",type="primary",use_container_width=True)
 st.caption("Dashboard time: "+datetime.now(TZ).strftime("%d %b %Y, %H:%M:%S IST"))
 if not token:
-    st.warning("Token abhi set nahi hai. Streamlit Cloud → Manage app → Settings → Secrets:")
-    st.code('GROWW_ACCESS_TOKEN = "your_access_token"')
+    if auth_mode == "Access token":
+        st.warning("Groww access token set karein, ya sidebar mein TOTP token method select karein.")
+        st.code('GROWW_ACCESS_TOKEN = "your_access_token"')
+    else:
+        st.info("Sidebar mein TOTP token aur TOTP secret enter karke Generate access token dabayein.")
     st.stop()
 
 headers={"Accept":"application/json","Authorization":f"Bearer {token}","X-API-VERSION":"1.0"}
@@ -57,7 +88,7 @@ except Exception as e:
     st.error("Groww live quote request failed.")
     st.code(str(e))
     st.markdown("**What this means:** HTTP 401/403 usually points to authentication/authorization or API access configuration; this message alone cannot prove a static-IP issue.")
-    st.info("Groww dashboard par token/access method check karein. Agar key/secret flow use kar rahe hain, official SDK se fresh access token generate karna pad sakta hai. Token chat mein share na karein.")
+    st.info("Market band hona aam taur par 403 Access Forbidden ka explanation nahi hai. Access token/TOTP approval, API permissions, aur Groww response check karein. Token chat mein share na karein.")
     st.stop()
 
 m1,m2=st.columns(2)
