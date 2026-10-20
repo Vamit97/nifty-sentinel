@@ -1,7 +1,6 @@
 streamlit>=1.40
 requests>=2.31
 pandas>=2.0
-numpy>=1.26
 plotly>=5.20
-growwapi
-pyotp>=2.9.0
+growwapi>=0.1.0
+pyotp>=2.9
