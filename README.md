@@ -1,20 +1,18 @@
-# NIFTY SENTINEL v7 — data and comparison upgrade
+# NIFTY SENTINEL LIVE V10
 
-## Android / GitHub update
-1. Download and extract this ZIP.
-2. In `Vamit97/nifty-sentinel`, replace `app.py` and `requirements.txt`.
-3. Commit changes and wait for Streamlit Community Cloud to redeploy.
+A Streamlit dashboard starter for Groww Trading API live NIFTY quote and option-chain research.
 
-## Improvements
-- Upload and merge multiple candle CSV files, sorting timestamps and removing duplicates.
-- Compare Breakout and Trend Pullback on the same data, same chronological split, and same cost assumptions.
-- Reports completed trades separately from unfinished end-of-window marks.
-- Adds maximum holding duration and conservative stop-first handling if SL and target touch in the same candle.
-- Shows data range and warns when the latest candle appears stale.
-- Calls out that the current previously inspected sample is not a truly untouched final test set.
+## Deploy
+1. Upload `app.py` and `requirements.txt` to the existing GitHub repo used by Streamlit Community Cloud.
+2. In Streamlit Cloud: Manage app → Settings → Secrets, add:
+   `GROWW_ACCESS_TOKEN = "your_token"`
+3. Reboot the app and choose the correct NIFTY expiry.
+4. Check the displayed spot and option premium against Groww before relying on it.
 
-## Limits
-- NIFTY underlying only; this is not CE/PE option P&L.
-- Intraday public history is limited. For longer free validation, daily history can be selected, but daily results do not validate an intraday strategy.
-- The second strategy is experimental, not claimed to be more profitable.
-- No orders are placed and no profit is guaranteed.
+## Important scope
+- Uses Groww SDK `get_ltp`, `get_ohlc`, and `get_option_chain`.
+- No orders are placed.
+- Signal labels are deliberately WATCH/NO TRADE heuristics, not proven trade calls.
+- Premium SL/target are illustrative calculator levels, not validated recommendations.
+- The dashboard currently uses a live snapshot and option chain; it does not yet render historical intraday candles.
+- Do not commit API tokens to GitHub or paste them in chat.
