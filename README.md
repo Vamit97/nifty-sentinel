@@ -1,16 +1,38 @@
-# NIFTY SENTINEL — Actionable Trade Decision Dashboard
+# NIFTY SENTINEL — consolidated live research build
 
-Mobile-friendly Streamlit dashboard connected to Groww API. It is designed to show only a clear market state and, when all required data checks pass, a rule-based CE/PE candidate with strike, premium reference, risk-sized quantity, SL and target. It never places orders.
+## What it does
+- Streamlit dashboard auto-reruns every 5 seconds while the page is open.
+- Groww NIFTY LTP/OHLC requests are cached for 5 seconds; option chain for 15 seconds; expiry lists for 1 hour; 5-minute candles for 60 seconds.
+- Fetches 28 days of 5-minute NIFTY candles in two requests of at most 14 days each, respecting Groww's documented 15-day limit for 5-minute candle requests.
+- Strategy checks only the latest fully closed 5-minute candle. If data is stale, the market clock is closed, the quote is unavailable, indicators are not ready, or no setup is confirmed, the app displays WAIT/NO TRADE.
+- Shows an ATM CE/PE candidate only after a confirmed index setup and successful option-chain response. Quantity is rounded down to full lots under the selected risk budget. It attempts to read lot size from Groww's instrument master; if unavailable, the user-visible fallback is editable and must be checked against the contract in Groww.
+- Orders are never placed automatically.
 
-## Deploy
-1. Replace `app.py` and `requirements.txt` in your GitHub Streamlit repository with these files.
-2. Add `GROWW_ACCESS_TOKEN = "your_current_access_token"` to Streamlit Cloud **Secrets** (or use the sidebar's API key + TOTP flow). Never commit credentials to GitHub or share them in chat.
-3. Reboot/redeploy the Streamlit app.
-4. During market hours, refresh. Diagnostics explains stale data, authentication, candle, expiry or option-chain errors.
+## Deploy on Streamlit Community Cloud
+1. Extract this ZIP.
+2. In the GitHub repository used by Streamlit, replace `app.py` and `requirements.txt` with these files and commit.
+3. Wait for the Streamlit app to redeploy.
+4. In the dashboard sidebar, choose **Access token** and enter a current Groww access token, or choose **API key + TOTP** and enter the Groww TOTP token and its TOTP secret, then press **Generate session token**.
+5. Keep the dashboard tab open during market hours. If the tab sleeps or loses internet, refresh may pause.
 
-## Important behavior
-- It only considers a new setup during NSE regular hours (weekdays 09:15–15:30 IST) and requires a fresh current-day Groww 5-minute candle.
-- A completed 5-minute candle must confirm a breakout/breakdown with EMA20/EMA50 and RSI filters. Otherwise the dashboard says WAIT / NO TRADE.
-- It requests the current NIFTY option chain and only calculates a contract quantity if a real premium and lot size are returned. It does not invent prices or lot sizes.
-- Premium stop/target are estimates (20% stop, 1.5R target), not backtested option-premium levels. Index candle strategy performance is not the same as CE/PE P&L. Verify liquidity, spread, lot size and charges in Groww before manual execution.
-- Holiday status is not authoritative; stale data fails closed. No automatic orders are placed. No strategy guarantees profits.
+## Security
+- Never paste tokens or TOTP secrets into GitHub, this README, or chat.
+- For a persistent access token, use Streamlit Cloud → App settings → Secrets:
+  `GROWW_ACCESS_TOKEN = "your_current_access_token"`
+- Access tokens from the standard flow expire daily; TOTP flow can generate a fresh access token.
+
+## Testing performed in this package
+- Python syntax compilation.
+- Unit-level checks for epoch timestamps, timezone conversion, stale/closed-market guards, WAIT logic, and Groww's string-form OHLC parsing.
+- Live Groww calls cannot be validated in this offline build environment. After deployment, inspect **Connection diagnostics** and confirm current NIFTY quote, fresh candles, expiry/option-chain response, and lot size before acting.
+
+## Strategy notes
+- Signal rules are a research baseline: breakout/breakdown versus the previous 12 completed bars, EMA20/EMA50 trend alignment, RSI filter, ATR-based underlying levels.
+- Option premium stop/target estimates use a 20% premium stop and 1.5R target. These are explicit configurable-style assumptions in the current baseline, not a validated edge and not historical option-premium backtest results.
+- The system is designed to reject weak/incomplete setups, not force a trade.
+
+## Official docs consulted
+- https://groww.in/trade-api/docs/python-sdk/backtesting
+- https://groww.in/trade-api/docs/curl/live-data
+- https://groww.in/trade-api/docs/python-sdk/instruments
+- https://groww.in/trade-api/docs/python-sdk
