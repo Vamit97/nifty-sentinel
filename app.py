@@ -367,6 +367,167 @@ with st.expander("Record a trade manually", expanded=False):
         st.download_button("Download trade journal CSV", data=csv_bytes, file_name="nifty_sentinel_trade_journal.csv", mime="text/csv")
         st.caption("Journal is stored only in the current Streamlit session unless downloaded. P&L excludes brokerage, taxes and slippage.")
 
+
+# Evidence-based strategy research engine. It never converts an index signal into a guaranteed option-premium prediction.
+import numpy as np
+
+def prepare_candles(frame):
+    d = frame.copy()
+    aliases = {str(c).strip().lower(): c for c in d.columns}
+    def pick(*names):
+        for name in names:
+            if name in aliases: return aliases[name]
+        return None
+    date_col = pick('date','datetime','timestamp','time')
+    mapping = {k: pick(k) for k in ['open','high','low','close']}
+    if not date_col or any(v is None for v in mapping.values()):
+        raise ValueError('CSV must contain Date/Datetime and Open, High, Low, Close columns.')
+    d = d.rename(columns={date_col:'Timestamp', **{v:k.title() for k,v in mapping.items()}})
+    d['Timestamp'] = pd.to_datetime(d['Timestamp'], errors='coerce', dayfirst=False)
+    for c in ['Open','High','Low','Close']:
+        d[c] = pd.to_numeric(d[c], errors='coerce')
+    d = d.dropna(subset=['Timestamp','Open','High','Low','Close']).sort_values('Timestamp').drop_duplicates('Timestamp').reset_index(drop=True)
+    d = d[(d['High'] >= d[['Open','Close','Low']].max(axis=1)) & (d['Low'] <= d[['Open','Close','High']].min(axis=1))]
+    if len(d) < 80: raise ValueError(f'Need at least 80 valid candles; found {len(d)}.')
+    d['EMA20'] = d['Close'].ewm(span=20, adjust=False).mean()
+    d['EMA50'] = d['Close'].ewm(span=50, adjust=False).mean()
+    delta = d['Close'].diff()
+    gain = delta.clip(lower=0).ewm(alpha=1/14, adjust=False).mean()
+    loss = (-delta.clip(upper=0)).ewm(alpha=1/14, adjust=False).mean()
+    rs = gain / loss.replace(0, np.nan)
+    d['RSI'] = (100 - 100/(1+rs)).fillna(50)
+    prev = d['Close'].shift(1)
+    tr = pd.concat([d['High']-d['Low'], (d['High']-prev).abs(), (d['Low']-prev).abs()], axis=1).max(axis=1)
+    d['ATR'] = tr.ewm(alpha=1/14, adjust=False).mean()
+    d['PriorHigh20'] = d['High'].rolling(20).max().shift(1)
+    d['PriorLow20'] = d['Low'].rolling(20).min().shift(1)
+    return d.dropna(subset=['PriorHigh20','PriorLow20','ATR']).reset_index(drop=True)
+
+def strategy_signals(d, strategy):
+    if strategy == 'Breakout':
+        long = (d.Close > d.PriorHigh20) & (d.EMA20 > d.EMA50) & d.RSI.between(52, 75)
+        short = (d.Close < d.PriorLow20) & (d.EMA20 < d.EMA50) & d.RSI.between(25, 48)
+    elif strategy == 'Trend pullback':
+        long = (d.EMA20 > d.EMA50) & (d.Low <= d.EMA20) & (d.Close > d.EMA20) & (d.Close > d.Open) & d.RSI.between(45, 65)
+        short = (d.EMA20 < d.EMA50) & (d.High >= d.EMA20) & (d.Close < d.EMA20) & (d.Close < d.Open) & d.RSI.between(35, 55)
+    else:
+        long = (d.Close > d.EMA20) & (d.EMA20 > d.EMA50) & d.RSI.between(50, 68)
+        short = (d.Close < d.EMA20) & (d.EMA20 < d.EMA50) & d.RSI.between(32, 50)
+    return long.fillna(False), short.fillna(False)
+
+def run_backtest(d, strategy, fee_points=2.0, atr_stop=1.5, target_r=2.0, max_bars=8):
+    longs, shorts = strategy_signals(d, strategy)
+    trades=[]; i=1
+    while i < len(d)-1:
+        side = 1 if bool(longs.iloc[i-1]) else (-1 if bool(shorts.iloc[i-1]) else 0)
+        if side == 0:
+            i += 1; continue
+        entry_i=i; entry=float(d.Open.iloc[i]); atr=float(d.ATR.iloc[i-1])
+        if not np.isfinite(entry) or not np.isfinite(atr) or atr <= 0:
+            i += 1; continue
+        risk=atr_stop*atr; stop=entry-side*risk; target=entry+side*risk*target_r
+        exit_i=min(len(d)-1, entry_i+max_bars); exit_px=float(d.Close.iloc[exit_i]); reason='TIME'
+        for j in range(entry_i, min(len(d), entry_i+max_bars+1)):
+            hi=float(d.High.iloc[j]); lo=float(d.Low.iloc[j])
+            hit_stop = lo <= stop if side==1 else hi >= stop
+            hit_target = hi >= target if side==1 else lo <= target
+            # Conservative assumption if both levels hit within same candle: stop is filled first.
+            if hit_stop:
+                exit_i=j; exit_px=stop; reason='SL'; break
+            if hit_target:
+                exit_i=j; exit_px=target; reason='TARGET'; break
+        gross=(exit_px-entry)*side; net=gross-fee_points
+        trades.append({'Entry time':str(d.Timestamp.iloc[entry_i]),'Exit time':str(d.Timestamp.iloc[exit_i]),'Side':'LONG' if side==1 else 'SHORT','Entry':entry,'Exit':exit_px,'Stop':stop,'Target':target,'Exit reason':reason,'Gross points':gross,'Net points':net,'R after costs':net/risk if risk else np.nan})
+        i=exit_i+1
+    return pd.DataFrame(trades)
+
+def stats_for(trades):
+    if trades.empty: return {'Trades':0,'Win rate %':0.0,'Net points':0.0,'Profit factor':0.0,'Avg R':0.0,'Max drawdown points':0.0}
+    net=trades['Net points']; wins=net[net>0].sum(); losses=-net[net<0].sum()
+    equity=net.cumsum(); dd=equity-equity.cummax()
+    return {'Trades':len(trades),'Win rate %':round((net>0).mean()*100,1),'Net points':round(net.sum(),2),'Profit factor':round(wins/losses,2) if losses>0 else float('inf') if wins>0 else 0.0,'Avg R':round(trades['R after costs'].mean(),2),'Max drawdown points':round(float(dd.min()),2)}
+
+st.markdown('<div class="section"><div class="section-title">Strategy lab · backtest before live signals</div><div class="section-sub">Historical index points only · not option P&L</div></div>', unsafe_allow_html=True)
+st.caption('The bundled research file is a short 15-minute sample ending 19 Oct 2026 (about 20 sessions). Results are exploratory, not proof of an edge. Index points are not CE/PE premium returns.')
+with st.expander('Live Groww candles / strategy research', expanded=True):
+    st.caption('Strategy signals use Groww historical candles when fetched successfully. 5-minute history is requested for the latest 30 days (Groww API limit). A closed market can still return historical candles.')
+    fetch_live_candles = st.button('↻ Fetch latest 5-minute NIFTY candles from Groww', type='primary', key='fetch_groww_candles')
+    uploaded_candles = st.file_uploader('Optional: upload NIFTY candle CSV (Date/Datetime, Open, High, Low, Close)', type=['csv'], key='strategy_csv')
+    source_label = 'Groww historical candles (not fetched yet)'
+    raw_research = None
+    # Fetch only on explicit button press to avoid repeated API calls on every Streamlit rerun.
+    if fetch_live_candles:
+        try:
+            from growwapi import GrowwAPI
+            sdk = GrowwAPI(token)
+            end_dt = datetime.now(TZ).replace(tzinfo=None)
+            start_dt = end_dt - pd.Timedelta(days=29)
+            candles_response = sdk.get_historical_candles(
+                exchange=sdk.EXCHANGE_NSE,
+                segment=sdk.SEGMENT_CASH,
+                groww_symbol='NSE-NIFTY',
+                start_time=start_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                end_time=end_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                candle_interval=sdk.CANDLE_INTERVAL_MIN_5,
+            )
+            candle_rows = candles_response.get('candles', []) if isinstance(candles_response, dict) else []
+            if not candle_rows:
+                raise ValueError('Groww returned no candles for the requested period.')
+            raw_research = pd.DataFrame(candle_rows, columns=['Timestamp','Open','High','Low','Close','Volume','OpenInterest'])
+            st.session_state['groww_nifty_5m_candles'] = raw_research
+            st.session_state['groww_nifty_5m_fetched_at'] = datetime.now(TZ).strftime('%d %b %Y %H:%M:%S IST')
+        except Exception as exc:
+            st.error(f'Groww historical candle fetch failed: {type(exc).__name__}: {str(exc)[:220]}')
+    if uploaded_candles is not None:
+        raw_research = pd.read_csv(uploaded_candles)
+        source_label = uploaded_candles.name
+    elif raw_research is not None:
+        source_label = 'Groww historical 5-minute candles'
+    elif 'groww_nifty_5m_candles' in st.session_state:
+        raw_research = st.session_state['groww_nifty_5m_candles'].copy()
+        source_label = 'Groww historical 5-minute candles · fetched ' + st.session_state.get('groww_nifty_5m_fetched_at', '')
+    else:
+        default_path = 'research_candles_15m.csv' if __import__('os').path.exists('research_candles_15m.csv') else __import__('os').path.join(__import__('os').path.dirname(__file__),'research_candles_15m.csv')
+        raw_research = pd.read_csv(default_path)
+        source_label = 'Bundled 15-minute fallback (NOT live)'
+    try:
+        research = prepare_candles(raw_research)
+        st.caption(f'Data source: {source_label} · {len(research)} usable candles · {research.Timestamp.min()} → {research.Timestamp.max()}')
+        if 'Groww historical 5-minute' in source_label:
+            st.success('Strategy lab is now using real Groww historical NIFTY candles. These are historical 5-minute bars, not a continuous streaming feed; refresh them during market hours for the latest completed bars.')
+        else:
+            st.warning('Strategy lab is not currently using fresh Groww candles. Fetch them above before treating the displayed setup as current.')
+        cfg1,cfg2,cfg3,cfg4 = st.columns(4)
+        with cfg1: chosen_strategy=st.selectbox('Strategy', ['Breakout','Trend pullback','EMA trend'], key='bt_strategy')
+        with cfg2: fee_points=st.number_input('Round-trip cost (index points)', min_value=0.0, max_value=50.0, value=2.0, step=0.5)
+        with cfg3: stop_atr=st.selectbox('Stop distance (ATR)', [1.0,1.5,2.0], index=1)
+        with cfg4: target_multiple=st.selectbox('Target (R)', [1.0,1.5,2.0,3.0], index=2)
+        all_trades=run_backtest(research, chosen_strategy, fee_points, stop_atr, target_multiple)
+        # Chronological split; signals are computed on each candle and entries occur at next candle open.
+        split=int(len(research)*0.7)
+        split_time=research.Timestamp.iloc[split]
+        dev=all_trades[pd.to_datetime(all_trades['Entry time']) < split_time] if not all_trades.empty else all_trades
+        oos=all_trades[pd.to_datetime(all_trades['Entry time']) >= split_time] if not all_trades.empty else all_trades
+        m1,m2,m3,m4,m5 = st.columns(5)
+        ms=stats_for(oos)
+        m1.metric('OOS trades', ms['Trades']); m2.metric('OOS win rate', f"{ms['Win rate %']}%"); m3.metric('OOS net points', f"{ms['Net points']:+.1f}"); m4.metric('OOS profit factor', f"{ms['Profit factor']}"); m5.metric('OOS max DD', f"{ms['Max drawdown points']:.1f}")
+        st.write('**Development period**'); st.dataframe(pd.DataFrame([stats_for(dev)]), use_container_width=True, hide_index=True)
+        st.write('**Out-of-sample period (chronologically later 30%)**'); st.dataframe(pd.DataFrame([ms]), use_container_width=True, hide_index=True)
+        if all_trades.empty:
+            st.warning('No trades triggered in this sample. Do not loosen rules just to force trades.')
+        else:
+            st.write('**Trade-by-trade audit**'); st.dataframe(all_trades, use_container_width=True, hide_index=True, height=300)
+            st.download_button('Download backtest trades CSV', all_trades.to_csv(index=False).encode('utf-8'), 'nifty_sentinel_backtest_trades.csv', 'text/csv')
+        latest=research.iloc[-1]
+        long_sig,short_sig=strategy_signals(research,chosen_strategy)
+        last_long=bool(long_sig.iloc[-1]); last_short=bool(short_sig.iloc[-1])
+        if last_long: signal='LONG BIAS — CE candidate only after option/liquidity checks'; why='Latest completed candle meets bullish rules.'
+        elif last_short: signal='SHORT BIAS — PE candidate only after option/liquidity checks'; why='Latest completed candle meets bearish rules.'
+        else: signal='NO TRADE'; why='Latest candle does not meet the selected strategy rules.'
+        st.markdown(f'<div class="info-box"><b>Latest candle decision: {signal}</b><br>{why}<br>Close {latest.Close:,.2f} · EMA20 {latest.EMA20:,.2f} · EMA50 {latest.EMA50:,.2f} · RSI {latest.RSI:.1f} · ATR {latest.ATR:.1f}<br><span class="small-note">Source: {source_label}. Signals are based on the latest returned candle and are candidates, not guaranteed option trades. Confirm current option premium, spread, liquidity and expiry.</span></div>', unsafe_allow_html=True)
+    except Exception as exc:
+        st.error(f'Strategy research data issue: {exc}')
+
 st.markdown('<div class="section"><div class="section-title">Data & execution status</div><div class="section-sub">Read-only market monitor</div></div>', unsafe_allow_html=True)
 s1, s2, s3 = st.columns(3)
 s1.markdown('<div class="info-box"><b style="color:#dce7ef">Market feed</b><br><span style="color:#78e6b4">● Connected</span><br><span class="small-note">Groww LTP endpoint</span></div>', unsafe_allow_html=True)
