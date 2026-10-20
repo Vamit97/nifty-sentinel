@@ -1,10 +1,13 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import zipfile
+from io import BytesIO
+from datetime import datetime
 
 st.set_page_config(page_title="NIFTY SENTINEL", page_icon="📈", layout="centered")
-st.title("📈 NIFTY SENTINEL v7")
-st.caption("Strategy comparison • Historical research • No broker orders")
+st.title("📈 NIFTY SENTINEL v9 — F&O Research")
+st.caption("Underlying strategy comparison + historical NIFTY F&O ZIP explorer • No broker orders")
 st.warning("Research only. NIFTY underlying points are not CE/PE option P&L. This app cannot guarantee profits.")
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -175,6 +178,10 @@ with st.sidebar:
 
 uploads = st.file_uploader("Upload one or more candle CSV files", type=["csv"], accept_multiple_files=True,
                             help="Required columns: Open, High, Low, Close. Date recommended. Multiple files are merged and duplicate timestamps removed.")
+
+st.subheader("Historical F&O options data (optional)")
+fno_zip = st.file_uploader("Upload historical F&O ZIP", type=["zip"], accept_multiple_files=False,
+                           help="Reads CSVs directly from the ZIP; it does not extract all files to disk. Historical data only, not live option-chain data.")
 if st.button("Refresh market data", type="primary"):
     st.cache_data.clear()
 
@@ -224,7 +231,8 @@ if current_signal:
     c.metric("Underlying target",f"{ref+current_signal*risk*target_r:,.2f}")
 else:
     st.info("NO TRADE under the Breakout rules. Do not force a setup.")
-st.caption("These are NIFTY underlying levels only, not CE/PE option-premium levels. No live option chain, IV, Greeks or broker execution.")
+st.caption(f"Dashboard checked at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (device/server time).")
+st.caption("These are NIFTY underlying levels only, not CE/PE option-premium levels. Public Yahoo feed can be delayed or unavailable; this is not a guaranteed real-time NSE feed. No live option chain, IV, Greeks or broker execution.")
 
 with st.expander("Recent candles and indicators"):
     cols=[c for c in ["Date","Open","High","Low","Close","Volume","EMA20","EMA50","RSI","ATR","PriorHigh20","PriorLow20","TrendStrength","ATRpct"] if c in df]
@@ -272,4 +280,125 @@ for title,start,end,key in [("Development window (first 70%)",60,split-1,"dev"),
 
 st.download_button("Download merged, analysed candles CSV",df.to_csv(index=False).encode("utf-8"),
                    "nifty_sentinel_merged_candles.csv","text/csv")
+if fno_zip is not None:
+    st.divider()
+    st.header("Historical F&O Research — extracted from your archive")
+    st.caption("Archive rows are historical snapshots. The module ignores filenames for dates and parses the Date column as day/month/year.")
+
+    @st.cache_data(show_spinner=False, max_entries=2)
+    def summarize_fno_zip(zip_bytes):
+        """Read large archive in chunks; retain aggregated NIFTY CE/PE contract-day rows."""
+        summaries=[]; file_rows=[]; errors=[]
+        with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
+            names=[n for n in zf.namelist() if n.lower().endswith('.csv') and not n.endswith('/')]
+            for name in names:
+                pieces=[]; raw_nifty=0
+                try:
+                    with zf.open(name) as fh:
+                        for part in pd.read_csv(fh, chunksize=150000, low_memory=False):
+                            part.columns=[str(c).strip() for c in part.columns]
+                            lowmap={c.lower():c for c in part.columns}
+                            required=['ticker','date','time','open','high','low','close','volume']
+                            if not all(k in lowmap for k in required):
+                                raise ValueError('Required columns missing')
+                            ren={lowmap[k]: (k.title() if k!='ticker' else 'Ticker') for k in required}
+                            if 'open interest' in lowmap: ren[lowmap['open interest']]='Open Interest'
+                            part=part.rename(columns=ren)
+                            part['Ticker']=part['Ticker'].astype(str).str.upper().str.strip()
+                            mask=part['Ticker'].str.startswith('NIFTY') & part['Ticker'].str.endswith(('CE.NFO','PE.NFO','CE','PE'))
+                            part=part.loc[mask].copy()
+                            if part.empty: continue
+                            raw_nifty += len(part)
+                            # Dataset stores dates as DD/MM/YYYY; filename may be misleading.
+                            part['Date']=pd.to_datetime(part['Date'], dayfirst=True, errors='coerce')
+                            part['Timestamp']=pd.to_datetime(part['Date'].dt.strftime('%Y-%m-%d')+' '+part['Time'].astype(str), errors='coerce')
+                            for c in ['Open','High','Low','Close','Volume']:
+                                part[c]=pd.to_numeric(part[c],errors='coerce')
+                            if 'Open Interest' not in part: part['Open Interest']=np.nan
+                            part['Open Interest']=pd.to_numeric(part['Open Interest'],errors='coerce')
+                            part=part.dropna(subset=['Date','Timestamp','Open','High','Low','Close'])
+                            part=part[part['Close']>0]
+                            if part.empty: continue
+                            part['Option type']=np.where(part['Ticker'].str.contains(r'CE(?:\.NFO)?$'), 'CE','PE')
+                            part=part.sort_values('Timestamp')
+                            g=part.groupby(['Date','Ticker','Option type'], sort=False, as_index=False).agg(
+                                FirstTime=('Timestamp','min'), LastTime=('Timestamp','max'),
+                                FirstOpen=('Open','first'), LastClose=('Close','last'),
+                                High=('High','max'), Low=('Low','min'), Volume=('Volume','sum'),
+                                FirstOI=('Open Interest','first'), LastOI=('Open Interest','last'),
+                                Records=('Close','size'))
+                            pieces.append(g)
+                    if pieces:
+                        p=pd.concat(pieces,ignore_index=True)
+                        # Merge chunk-level partial groups into one contract-day record.
+                        p=p.sort_values(['Date','Ticker','FirstTime'])
+                        g=p.groupby(['Date','Ticker','Option type'],as_index=False,sort=False).agg(
+                            FirstTime=('FirstTime','min'), LastTime=('LastTime','max'),
+                            FirstOpen=('FirstOpen','first'), LastClose=('LastClose','last'),
+                            High=('High','max'), Low=('Low','min'), Volume=('Volume','sum'),
+                            FirstOI=('FirstOI','first'), LastOI=('LastOI','last'), Records=('Records','sum'))
+                        g['Return %']=100*(g['LastClose']/g['FirstOpen']-1)
+                        g['Range %']=100*(g['High']/g['Low']-1).where(g['Low']>0)
+                        g['OI change']=g['LastOI']-g['FirstOI']
+                        summaries.append(g)
+                    file_rows.append({'File name (not trusted for date)':name,'NIFTY option rows scanned':raw_nifty})
+                except Exception as e:
+                    errors.append(f'{name}: {type(e).__name__}: {e}')
+        if not summaries:
+            return pd.DataFrame(),pd.DataFrame(file_rows),errors
+        out=pd.concat(summaries,ignore_index=True)
+        out=out.sort_values(['Date','Ticker','FirstTime']).reset_index(drop=True)
+        # Duplicate ticker/date across archive files: combine and deduplicate at source-row level would be safer;
+        # flag these instead of silently counting them twice.
+        out['Option type']=out['Option type'].astype(str)
+        return out,pd.DataFrame(file_rows),errors
+
+    try:
+        with st.spinner('Scanning ZIP in chunks and extracting NIFTY CE/PE contract-day statistics…'):
+            opt_summary, archive_summary, errors = summarize_fno_zip(fno_zip.getvalue())
+        if opt_summary.empty:
+            st.error('No NIFTY CE/PE records parsed. Check ZIP structure and column names.')
+        else:
+            opt_summary['Trading date']=opt_summary['Date'].dt.strftime('%Y-%m-%d')
+            dates=sorted(opt_summary['Trading date'].dropna().unique())
+            total_rows=int(archive_summary['NIFTY option rows scanned'].sum()) if not archive_summary.empty else 0
+            m1,m2,m3,m4=st.columns(4)
+            m1.metric('NIFTY CE/PE rows',f'{total_rows:,}')
+            m2.metric('Contract-days',f'{len(opt_summary):,}')
+            m3.metric('Unique contracts',f'{opt_summary.Ticker.nunique():,}')
+            m4.metric('Trading dates',f'{len(dates)}')
+            st.caption(f"Actual Date-column coverage: {dates[0]} to {dates[-1]}. Filename dates are ignored because at least one filename does not match its records.")
+            with st.expander('Archive scan by file'):
+                st.dataframe(archive_summary,use_container_width=True,hide_index=True)
+            selected_date=st.selectbox('Historical date',dates,index=len(dates)-1)
+            day=opt_summary[opt_summary['Trading date']==selected_date].copy()
+            side=st.radio('Option type',['Both','CE','PE'],horizontal=True)
+            if side!='Both': day=day[day['Option type']==side]
+            tab1,tab2,tab3=st.tabs(['Largest premium rises','Largest premium falls','Volume / OI activity'])
+            display=['Ticker','Option type','FirstTime','LastTime','FirstOpen','LastClose','Return %','High','Low','Range %','Volume','FirstOI','LastOI','OI change','Records']
+            with tab1:
+                st.dataframe(day.sort_values('Return %',ascending=False)[display].head(30),use_container_width=True,hide_index=True)
+            with tab2:
+                st.dataframe(day.sort_values('Return %')[display].head(30),use_container_width=True,hide_index=True)
+            with tab3:
+                st.dataframe(day.sort_values('Volume',ascending=False)[display].head(30),use_container_width=True,hide_index=True)
+            st.download_button('Download contract-day research table',day[display+['Trading date']].to_csv(index=False).encode('utf-8'),f'nifty_fno_contract_day_{selected_date}.csv','text/csv')
+            st.subheader('Historical findings (descriptive, not a live signal)')
+            both=opt_summary.copy()
+            both['Trading date']=both['Date'].dt.strftime('%Y-%m-%d')
+            daily=both.groupby(['Trading date','Option type']).agg(
+                contracts=('Ticker','nunique'),median_return_pct=('Return %','median'),
+                positive_contract_share=('Return %',lambda s:100*(s>0).mean()),
+                total_volume=('Volume','sum'),median_range_pct=('Range %','median')).reset_index()
+            st.dataframe(daily,use_container_width=True,hide_index=True)
+            st.download_button('Download daily CE/PE summary',daily.to_csv(index=False).encode('utf-8'),'nifty_fno_daily_summary.csv','text/csv')
+            st.warning('Interpretation limits: each contract’s first-to-last observed record may not represent a tradable entry at the first timestamp; contracts are not a synchronized option chain. No bid/ask, IV, Greeks, slippage or brokerage are modelled. Do not infer tomorrow’s direction from this 2024 sample.')
+            if errors:
+                with st.expander(f'Files skipped / parsing notes ({len(errors)})'):
+                    st.write('\n'.join(errors[:30]))
+    except zipfile.BadZipFile:
+        st.error('ZIP could not be opened; it may be damaged or incomplete.')
+    except Exception as exc:
+        st.error(f'F&O research error: {type(exc).__name__}: {exc}')
+
 st.caption("Research prototype only. No orders are placed. Real CE/PE P&L requires historical option premiums, spreads, fees and realistic fills. Never upload API keys to a public repository.")
