@@ -1,17 +1,16 @@
-# NIFTY SENTINEL LIVE — V12 TOTP option
+# NIFTY SENTINEL V14 — Professional UI
 
-Mobile-friendly Streamlit dashboard for Groww live quote and NIFTY option-chain research. Manual execution only; no orders are placed.
+Mobile-friendly market dashboard refresh with a clean light trading-terminal style, dark navigation sidebar, green primary actions, clearer market/option-chain sections, compact status and timestamp, and improved metric/table/chart styling.
 
-## Authentication
-- **Access token:** enter a current Groww access token or configure `GROWW_ACCESS_TOKEN` in Streamlit Cloud Secrets.
-- **TOTP token:** choose TOTP token in the sidebar, enter the Groww TOTP token and TOTP secret from Groww Trading APIs, then tap **Generate access token from TOTP**. The app generates the current OTP and requests an access token through Groww's Python SDK. The generated access token is kept in Streamlit session state only; refresh may require generating it again.
+Keeps the V13 Groww API authentication options (access token and TOTP), expiry selector, quote/OHLC request, option-chain request, and illustrative premium risk calculator. No automatic orders are placed.
 
-Never paste API credentials into chat or commit them to GitHub. Only use credentials created in your own Groww account. TOTP access may still require the key to be approved in Groww's API dashboard.
-
-## Deploy
-Replace `app.py` and `requirements.txt` in the connected GitHub repository. Streamlit Cloud should rebuild the app after commit.
+## Deploy from Android
+1. Extract the ZIP.
+2. In your GitHub repo, replace `app.py` and `requirements.txt` with these files, then commit.
+3. Wait for Streamlit Cloud to redeploy.
+4. Test the live quote and option chain. Verify the selected expiry against the expiry listed in Groww.
 
 ## Notes
-- This package has not been verified against the user's Groww account/API permissions.
-- A closed market can mean prices are not changing, but does not by itself establish why an API request returns HTTP 403.
-- No automatic orders. The calculator's SL/targets are illustrative, not validated trade signals.
+- UI and Python syntax were checked locally; the Groww API was not live-tested from this package.
+- The expiry list is a set of candidate Tuesday dates, not a guaranteed exchange calendar. A Groww `GA000` option-chain error may still be a server-side issue.
+- Keep access tokens and TOTP secrets out of GitHub and chat.

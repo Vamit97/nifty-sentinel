@@ -9,16 +9,38 @@ import streamlit as st
 
 TZ=ZoneInfo("Asia/Kolkata")
 BASE="https://api.groww.in/v1"
-st.set_page_config(page_title="NIFTY SENTINEL LIVE",page_icon="📈",layout="wide")
+st.set_page_config(page_title="NIFTY SENTINEL | Markets",page_icon="📈",layout="wide",initial_sidebar_state="expanded")
 st.markdown("""
 <style>
-.stApp{background:#070d17;color:#edf3ff}
-[data-testid="stMetric"]{background:#101b2b;border:1px solid #26364d;padding:14px;border-radius:14px}
-section[data-testid="stSidebar"]{background:#0b1422}
-</style>""",unsafe_allow_html=True)
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+:root{--bg:#f5f7fa;--panel:#ffffff;--ink:#182230;--muted:#687586;--line:#e4e9f0;--green:#00a86b;--red:#e5484d;--navy:#111827;}
+html,body,[class*="css"]{font-family:'Inter',sans-serif}
+.stApp{background:var(--bg);color:var(--ink)}
+.block-container{padding-top:1.2rem;padding-bottom:2rem;max-width:1440px}
+[data-testid="stHeader"]{background:rgba(245,247,250,.92)}
+[data-testid="stSidebar"]{background:#111827;border-right:1px solid #263244}
+[data-testid="stSidebar"] *{color:#edf2f7}
+[data-testid="stSidebar"] [data-baseweb="select"] *{color:#182230}
+[data-testid="stMetric"]{background:var(--panel);border:1px solid var(--line);padding:18px 18px 14px;border-radius:12px;box-shadow:0 2px 8px rgba(16,24,40,.035)}
+[data-testid="stMetricLabel"]{color:var(--muted);font-weight:600;font-size:.85rem}
+[data-testid="stMetricValue"]{color:var(--ink);font-weight:750;letter-spacing:-.04em}
+.stButton>button{border-radius:9px;font-weight:650;min-height:44px;border:1px solid #d6dde7}
+.stButton>button[kind="primary"]{background:#00a86b;border-color:#00a86b;color:white}
+.stButton>button[kind="primary"]:hover{background:#008e5a;border-color:#008e5a;color:white}
+[data-testid="stDataFrame"], [data-testid="stPlotlyChart"]{background:white;border:1px solid var(--line);border-radius:12px;overflow:hidden;padding:5px}
+[data-testid="stAlert"]{border-radius:10px}
+h1,h2,h3{letter-spacing:-.035em;color:var(--ink)}
+.brandbar{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#111827;color:#f8fafc;border-radius:14px;padding:17px 22px;margin-bottom:16px}
+.brandleft{display:flex;align-items:center;gap:12px}.brandicon{font-size:25px;background:#00a86b;color:white;border-radius:9px;width:42px;height:42px;display:flex;align-items:center;justify-content:center}
+.brandtitle{font-size:1.25rem;font-weight:800;letter-spacing:-.04em;color:#fff}.brandsub{font-size:.76rem;color:#b7c2d0;margin-top:3px}.livepill{border:1px solid #276b53;background:#123a2c;color:#7ee2b8;border-radius:999px;padding:7px 11px;font-size:.76rem;font-weight:700;white-space:nowrap}
+.sectionhead{display:flex;align-items:center;justify-content:space-between;margin:1.1rem 0 .55rem}.sectionhead h3{font-size:1.12rem;font-weight:750;margin:0}.sectionhint{font-size:.78rem;color:var(--muted)}
+div[data-testid="stVerticalBlock"]>div:has(> .sectionhead){margin-top:.25rem}
+@media(max-width:640px){.block-container{padding: .8rem .75rem 1.5rem}.brandbar{padding:13px 14px}.brandtitle{font-size:1.05rem}.brandsub{font-size:.68rem}.livepill{font-size:.68rem;padding:6px 8px}[data-testid="stMetric"]{padding:12px}.sectionhint{display:none}}
+</style>
+<div class="brandbar"><div class="brandleft"><div class="brandicon">↗</div><div><div class="brandtitle">NIFTY SENTINEL</div><div class="brandsub">INDIAN MARKETS · OPTIONS ANALYTICS · MANUAL EXECUTION</div></div></div><div class="livepill">● LIVE DATA MODE</div></div>
+""",unsafe_allow_html=True)
 
-st.title("📈 NIFTY SENTINEL")
-st.caption("LIVE MARKET MONITOR • OPTION CHAIN • MANUAL EXECUTION")
+st.markdown('''<div class="sectionhead"><h3>Market overview</h3><span class="sectionhint">Groww API · Snapshot data</span></div>''',unsafe_allow_html=True)
 with st.sidebar:
     st.subheader("Groww API Authentication")
     auth_mode = st.radio("Authentication method", ["Access token", "TOTP token"], index=0)
@@ -53,12 +75,31 @@ with st.sidebar:
         token = st.session_state.get("groww_generated_access_token", "")
         if token:
             st.caption("Session token generated at " + st.session_state.get("groww_generated_token_time", ""))
-    expiry=st.date_input("NIFTY expiry",value=date.today())
+    # NIFTY weekly expiries are generally Tuesday; show candidate dates instead of defaulting to today.
+    # Holidays/contract calendars can differ, so the user must verify the actual listed expiry.
+    today = datetime.now(TZ).date()
+    candidate_expiries = []
+    for offset in range(0, 70):
+        d = today.fromordinal(today.toordinal() + offset)
+        if d.weekday() == 1:  # Tuesday
+            candidate_expiries.append(d)
+    future_expiries = [d for d in candidate_expiries if d > today]
+    default_expiry = future_expiries[0] if future_expiries else candidate_expiries[0]
+    expiry = st.selectbox(
+        "NIFTY expiry (verify against Groww contract list)",
+        options=candidate_expiries,
+        index=candidate_expiries.index(default_expiry),
+        format_func=lambda d: d.strftime("%d %b %Y") + (" • today" if d == today else ""),
+        help="Candidate Tuesday dates only; exchange holidays or contract changes may alter the actual expiry."
+    )
     capital=st.number_input("Trading capital (₹)",min_value=1000,value=150000,step=5000)
     risk_pct=st.slider("Risk budget (%)",0.25,2.0,0.5,0.25)
     st.caption("Keep all tokens and secrets private. Never commit them to GitHub.")
-st.button("↻ Refresh live data",type="primary",use_container_width=True)
-st.caption("Dashboard time: "+datetime.now(TZ).strftime("%d %b %Y, %H:%M:%S IST"))
+refresh_col, time_col = st.columns([1,2])
+with refresh_col:
+    st.button("↻  Refresh market data",type="primary",use_container_width=True)
+with time_col:
+    st.markdown(f"<div style='text-align:right;color:#687586;padding-top:12px;font-size:.82rem'>Updated {datetime.now(TZ).strftime('%d %b %Y · %H:%M:%S IST')}</div>",unsafe_allow_html=True)
 if not token:
     if auth_mode == "Access token":
         st.warning("Groww access token set karein, ya sidebar mein TOTP token method select karein.")
@@ -108,7 +149,7 @@ except Exception as e:
     st.warning(f"OHLC request failed separately: {e}")
 
 try:
-    chain=api_get(f"/option-chain/exchange/NSE/underlying/NIFTY",{"expiry_date":expiry.isoformat()})
+    chain=api_get("/option-chain/exchange/NSE/underlying/NIFTY", {"expiry_date": expiry.isoformat()})
     strikes=chain.get("strikes",{})
     rows=[]
     for strike,sides in strikes.items():
@@ -123,8 +164,9 @@ try:
                         f"{side} IV":g.get("iv"),f"{side} Symbol":c.get("trading_symbol")})
         rows.append(row)
 except Exception as e:
-    st.error("NIFTY quote works, but option-chain request failed.")
+    st.error(f"NIFTY quote works, but option-chain request failed for expiry {expiry.isoformat()}.")
     st.code(str(e))
+    st.info("Check that this exact expiry is listed in Groww. Candidate Tuesday dates exclude exchange-holiday adjustments; HTTP 500/GA000 can also be a Groww-side issue. The NIFTY quote is kept separate and is working.")
     st.stop()
 
 df=pd.DataFrame(rows).sort_values("Strike") if rows else pd.DataFrame()
@@ -141,13 +183,13 @@ b.metric("ATM strike",f"{atm_strike:,.0f}")
 c.metric("ATM CE premium",f"₹{ce:,.2f}" if pd.notna(ce) else "N/A")
 d.metric("ATM PE premium",f"₹{pe:,.2f}" if pd.notna(pe) else "N/A")
 
-st.subheader("Market OHLC snapshot")
+st.markdown('''<div class="sectionhead"><h3>Price snapshot</h3><span class="sectionhint">Open · High · Low · Close</span></div>''',unsafe_allow_html=True)
 o1,o2,o3,o4=st.columns(4)
 for col,label,key in [(o1,"Open","open"),(o2,"High","high"),(o3,"Low","low"),(o4,"Close field","close")]:
     try: col.metric(label,f"{float(oi[key]):,.2f}")
     except Exception: col.metric(label,"N/A")
 
-st.subheader("Trade planning calculator")
+st.markdown('''<div class="sectionhead"><h3>Trade planning</h3><span class="sectionhint">Illustrative risk calculator · not a signal</span></div>''',unsafe_allow_html=True)
 selected=st.selectbox("Contract",["ATM CE","ATM PE"])
 premium=float(ce if selected.endswith("CE") else pe) if pd.notna(ce if selected.endswith("CE") else pe) else None
 if premium and premium>0:
@@ -162,7 +204,7 @@ if premium and premium>0:
     x2.metric("Illustrative SL",f"₹{sl:.2f}")
     x3.metric(f"Illustrative target ({rmult:g}R)",f"₹{target:.2f}")
     st.caption(f"Risk budget ₹{risk:,.0f}; theoretical units {units:,} before lot-size rounding/charges. This is a calculator, not a validated signal.")
-st.subheader("Option chain")
+st.markdown('''<div class="sectionhead"><h3>Option chain</h3><span class="sectionhint">CE / PE premiums, OI, volume and Greeks</span></div>''',unsafe_allow_html=True)
 cols=["CE LTP","CE OI","CE Volume","CE Delta","CE IV","Strike","PE LTP","PE OI","PE Volume","PE Delta","PE IV"]
 st.dataframe(df[cols],use_container_width=True,hide_index=True,height=420)
 near=df[(df["Strike"]>=atm_strike-500)&(df["Strike"]<=atm_strike+500)]
@@ -172,4 +214,4 @@ fig.add_trace(go.Scatter(x=near["Strike"],y=pd.to_numeric(near["PE LTP"],errors=
 fig.add_vline(x=spot,line_dash="dash",annotation_text=f"NIFTY {spot:.0f}")
 fig.update_layout(template="plotly_dark",height=330,margin=dict(l=8,r=8,t=25,b=8),xaxis_title="Strike",yaxis_title="Premium ₹")
 st.plotly_chart(fig,use_container_width=True)
-st.warning("No automatic orders. Do not use these illustrative SL/targets as trade calls. Verify quotes, expiry, liquidity and timestamps in Groww before any manual trade.")
+st.markdown("<div style='background:#fff8e8;border:1px solid #f4d99a;border-radius:10px;padding:13px 15px;color:#75551b;font-size:.84rem'><b>Risk notice</b> · Manual execution only. No orders are placed. Stop-loss and target values are illustrative, not validated trade calls. Verify the contract, live premium, liquidity and timestamp in Groww before trading.</div>",unsafe_allow_html=True)
