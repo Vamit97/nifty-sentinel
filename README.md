@@ -1,10 +1,10 @@
-# NIFTY SENTINEL v3
-Replace `app.py` and `requirements.txt` in your existing GitHub repository with these files. Commit changes; Streamlit Community Cloud should redeploy automatically.
+# NIFTY SENTINEL v4 — single-position backtest
+Replace `app.py` and `requirements.txt` in your existing GitHub repo with these files and commit. Streamlit Community Cloud normally redeploys on commit.
 
-User workflow: open the Streamlit website, check latest candle timestamp, read the one-line signal. Expand indicators/backtest only if needed.
-
-Important limitations:
-- Uses public Yahoo Finance NIFTY underlying candles; public feed may be delayed or unavailable.
-- Signals are underlying-direction research candidates, not live option premium entry/SL/targets.
-- Backtest uses next-candle-open entries, ATR-based exits, conservative SL-first same-bar logic, and a rough user-editable cost in NIFTY points. It is not an options backtest and does not prove future profitability.
-- No broker orders are placed; no API keys are needed.
+Changes:
+- Avoids overlapping/repeated entries by allowing only one open simulated position.
+- Enters on next candle open after a close-confirmed signal.
+- Uses ATR stop/target and assumes stop-loss first if both target and stop are touched within one candle.
+- Splits data chronologically into 70% development and 30% out-of-sample windows.
+- Reports profit factor and drawdown, with warning for too few OOS trades.
+- Still tests NIFTY underlying points, not actual CE/PE premiums. Costs are approximate index-point deductions, not brokerage/option pricing. This is not proof of profitability.
