@@ -1,13 +1,20 @@
-# NIFTY SENTINEL v6 — research improvements
-Replace `app.py` and `requirements.txt` in your GitHub repository, commit changes, then wait for Streamlit Cloud to redeploy.
+# NIFTY SENTINEL v7 — data and comparison upgrade
 
-Improvements:
-- Fixes the train/test split so the two windows do not share a signal candle.
-- Reports completed trades separately from unfinished end-of-window positions.
-- Uses completed trades for win rate and profit factor.
-- Adds a maximum holding period / time exit.
-- Adds a second explicitly experimental trend-pullback setup for comparison with the baseline.
-- Improves RSI initialization and shows ATR/trend context.
-- Keeps one simulated position open at a time and assumes SL first when both SL and target are touched in the same candle.
+## Android / GitHub update
+1. Download and extract this ZIP.
+2. In `Vamit97/nifty-sentinel`, replace `app.py` and `requirements.txt`.
+3. Commit changes and wait for Streamlit Community Cloud to redeploy.
 
-Important: this is still NIFTY underlying research, not CE/PE option-premium P&L. The alternative setup is experimental, not asserted to be more profitable. Do not choose a strategy based on the same out-of-sample window repeatedly; use fresh data for final validation.
+## Improvements
+- Upload and merge multiple candle CSV files, sorting timestamps and removing duplicates.
+- Compare Breakout and Trend Pullback on the same data, same chronological split, and same cost assumptions.
+- Reports completed trades separately from unfinished end-of-window marks.
+- Adds maximum holding duration and conservative stop-first handling if SL and target touch in the same candle.
+- Shows data range and warns when the latest candle appears stale.
+- Calls out that the current previously inspected sample is not a truly untouched final test set.
+
+## Limits
+- NIFTY underlying only; this is not CE/PE option P&L.
+- Intraday public history is limited. For longer free validation, daily history can be selected, but daily results do not validate an intraday strategy.
+- The second strategy is experimental, not claimed to be more profitable.
+- No orders are placed and no profit is guaranteed.
