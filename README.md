@@ -1,14 +1,6 @@
-# NIFTY SENTINEL v5
-On your existing GitHub repository, replace `app.py` and `requirements.txt` with these files and commit changes. Streamlit Community Cloud should redeploy.
+# NIFTY SENTINEL v5.1 — KeyError fix
+Replace `app.py` and `requirements.txt` in your GitHub repository with these files, then commit. Streamlit Cloud should redeploy.
 
-What changed:
-- One simulated position at a time.
-- Signal at candle close, entry next candle open.
-- No overlapping positions.
-- Each 70/30 test window is isolated; trades cannot run into the other window.
-- Any trade still open at a window end is marked-to-market and labeled as unfinished rather than being silently counted as a completed stop/target trade.
-- Conservative SL-first assumption if stop and target are both touched in one candle.
-- Clear warning if latest candle appears stale.
-- Out-of-sample result warns when fewer than 20 trades exist.
+Fix: the backtest summary now uses consistent metric keys, preventing the KeyError shown in the app screenshot. No change claims this is profitable.
 
-Important: this is a research prototype for NIFTY underlying candles, NOT an options backtest. Index points are not rupee P&L. Costs are rough point deductions. It does not guarantee profitability or place orders.
+Limitations: underlying NIFTY candles only, not actual CE/PE option P&L. Costs are rough index-point assumptions. No orders are placed and profits are not guaranteed.
